@@ -17,7 +17,7 @@ jobs:
           mkdir -p app/src/main/assets
           curl -fL -o app/src/main/assets/style_predict.tflite https://storage.googleapis.com/download.tensorflow.org/models/tflite/arbitrary_style_transfer/style_predict_quantized_256.tflite
           curl -fL -o app/src/main/assets/style_transfer.tflite https://storage.googleapis.com/download.tensorflow.org/models/tflite/arbitrary_style_transfer/style_transfer_quantized_dynamic.tflite
-          cp style.jpg app/src/main/assets/style.jpg
+          cp IMG_20261112_112147.jpg app/src/main/assets/style.jpg
       - run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
