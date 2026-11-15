@@ -12,7 +12,9 @@
 :root{--bg:#F1EEF6;--surface:#fff;--ink:#1B1530;--muted:#6E6785;--accent:#C2306B;--onaccent:#fff;--line:#D9D3E6;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0E0B1A;--surface:#1A1530;--ink:#EDE8F7;--muted:#9C94B8;--accent:#FF5C9A;--onaccent:#1B0A14;--line:#2D2548}}
+:root[data-theme="dark"]{--bg:#0E0B1A;--surface:#1A1530;--ink:#EDE8F7;--muted:#9C94B8;--accent:#FF5C9A;--onaccent:#1B0A14;--line:#2D2548}
 *{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}
 main{max-width:520px;margin:0 auto;padding:24px 16px 48px}
 h1{font-weight:800;font-size:2.2rem;letter-spacing:-.02em;margin:0 0 4px}
@@ -20,6 +22,7 @@ h1{font-weight:800;font-size:2.2rem;letter-spacing:-.02em;margin:0 0 4px}
 button,.btn{font:inherit;cursor:pointer;border:0;border-radius:12px;padding:13px 18px;font-weight:600;background:var(--accent);color:var(--onaccent);display:inline-block;text-align:center}
 .ghost{background:transparent;color:var(--ink);border:2px solid var(--line)}
 input[type=file]{display:none}
+select{font:inherit;width:100%;padding:10px;border-radius:10px;border:2px solid var(--line);background:var(--surface);color:var(--ink)}
 .stage{background:var(--surface);border-radius:16px;padding:8px;margin:16px 0;min-height:160px;display:grid;place-items:center}
 canvas{max-width:100%;height:auto;border-radius:10px;display:block}
 .hint{color:var(--muted);padding:40px 16px;text-align:center}
@@ -35,17 +38,23 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 <body>
 <main>
   <h1>Arcane Photo</h1>
-  <p class="sub">Enhance a photo and give it a painted, animated look. Everything runs on your phone, with no upload.</p>
+  <p class="sub">Oil-paint look, bold shading, ink outlines and show-style colors. Runs on your phone, no upload.</p>
   <label class="btn" for="file">Choose photo</label>
   <input type="file" id="file" accept="image/*">
   <div class="stage"><canvas id="cv" hidden></canvas><p class="hint" id="hint">Pick a photo to begin.</p></div>
   <div id="ctl" hidden>
+    <div class="row"><label for="mood">Color mood</label>
+      <select id="mood">
+        <option value="0">Piltover (teal and gold)</option>
+        <option value="1">Zaun (purple and green)</option>
+        <option value="2">Night (blue and pink)</option>
+      </select></div>
+    <div class="row"><label for="sty">Painted look</label><input type="range" id="sty" min="0" max="100" value="85"></div>
+    <div class="row"><label for="ink">Ink lines</label><input type="range" id="ink" min="0" max="100" value="60"></div>
     <div class="row"><label for="enh">Enhance</label><input type="range" id="enh" min="0" max="100" value="40"></div>
     <div class="row"><label for="bri">Brightness</label><input type="range" id="bri" min="70" max="140" value="100"></div>
-    <div class="row"><label for="sat">Color</label><input type="range" id="sat" min="60" max="180" value="115"></div>
-    <div class="row"><label for="sty">Painted look</label><input type="range" id="sty" min="0" max="100" value="70"></div>
-    <div class="row"><label for="ink">Ink lines</label><input type="range" id="ink" min="0" max="100" value="50"></div>
-    <div class="row"><label for="grn">Film grain</label><input type="range" id="grn" min="0" max="100" value="20"></div>
+    <div class="row"><label for="sat">Color</label><input type="range" id="sat" min="60" max="200" value="125"></div>
+    <div class="row"><label for="grn">Paint grain</label><input type="range" id="grn" min="0" max="100" value="15"></div>
     <div class="btns">
       <button class="ghost" id="reset">Reset</button>
       <button id="save">Save image</button>
@@ -58,38 +67,86 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 </main>
 <script>
 var $=function(i){return document.getElementById(i)};
-var MAX=1000, src=document.createElement('canvas'), cv=$('cv'), busy=false, queued=false;
-var defaults={enh:40,bri:100,sat:115,sty:70,ink:50,grn:20};
+var MAX=900, src=document.createElement('canvas'), cv=$('cv'), busy=false, queued=false;
+var defaults={mood:0,sty:85,ink:60,enh:40,bri:100,sat:125,grn:15};
+var MOODS=[
+  {sh:[20,70,100],hi:[255,190,115]},
+  {sh:[60,20,95],hi:[110,235,180]},
+  {sh:[15,30,95],hi:[255,125,185]}
+];
 function blurred(w,h,px){var c=document.createElement('canvas');c.width=w;c.height=h;var x=c.getContext('2d',{willReadFrequently:true});x.filter='blur('+px+'px)';x.drawImage(cv,0,0);return x.getImageData(0,0,w,h).data;}
+
+function kuwahara(d,w,h,r){
+  var W=w+1,n=W*(h+1);
+  var iR=new Float64Array(n),iG=new Float64Array(n),iB=new Float64Array(n),iL=new Float64Array(n),iQ=new Float64Array(n);
+  var x,y,p,idx,a,b,c,l;
+  for(y=0;y<h;y++){
+    var sr=0,sg=0,sb=0,sl=0,sq=0;
+    for(x=0;x<w;x++){
+      p=(y*w+x)*4;a=d[p];b=d[p+1];c=d[p+2];l=0.3*a+0.59*b+0.11*c;
+      sr+=a;sg+=b;sb+=c;sl+=l;sq+=l*l;
+      idx=(y+1)*W+x+1;
+      iR[idx]=iR[idx-W]+sr;iG[idx]=iG[idx-W]+sg;iB[idx]=iB[idx-W]+sb;iL[idx]=iL[idx-W]+sl;iQ[idx]=iQ[idx-W]+sq;
+    }
+  }
+  function box(I,x0,y0,x1,y1){return I[(y1+1)*W+x1+1]-I[y0*W+x1+1]-I[(y1+1)*W+x0]+I[y0*W+x0];}
+  var out=new Uint8ClampedArray(w*h*4);
+  for(y=0;y<h;y++){for(x=0;x<w;x++){
+    var bestV=1e18,bx0=0,by0=0,bx1=0,by1=0;
+    for(var q=0;q<4;q++){
+      var x0=q&1?x:x-r,x1=q&1?x+r:x,y0=q&2?y:y-r,y1=q&2?y+r:y;
+      if(x0<0)x0=0;if(y0<0)y0=0;if(x1>w-1)x1=w-1;if(y1>h-1)y1=h-1;
+      var cnt=(x1-x0+1)*(y1-y0+1),m=box(iL,x0,y0,x1,y1)/cnt,v=box(iQ,x0,y0,x1,y1)/cnt-m*m;
+      if(v<bestV){bestV=v;bx0=x0;by0=y0;bx1=x1;by1=y1;}
+    }
+    var k=(bx1-bx0+1)*(by1-by0+1);
+    p=(y*w+x)*4;
+    out[p]=box(iR,bx0,by0,bx1,by1)/k;
+    out[p+1]=box(iG,bx0,by0,bx1,by1)/k;
+    out[p+2]=box(iB,bx0,by0,bx1,by1)/k;
+    out[p+3]=255;
+  }}
+  return out;
+}
+
 function run(){
   var w=src.width,h=src.height; cv.width=w; cv.height=h;
   var enh=+$('enh').value/100, sty=+$('sty').value/100, ink=+$('ink').value/100, grn=+$('grn').value/100;
+  var mood=MOODS[+$('mood').value];
   var c=cv.getContext('2d',{willReadFrequently:true});
-  c.filter='brightness('+(+$('bri').value/100)+') contrast('+(1+enh*0.2+sty*0.12)+') saturate('+(+$('sat').value/100)+')';
+  c.filter='brightness('+(+$('bri').value/100)+') contrast('+(1.05+enh*0.2+sty*0.2)+') saturate('+(+$('sat').value/100)+')';
   c.drawImage(src,0,0); c.filter='none';
-  var img=c.getImageData(0,0,w,h), d=img.data;
-  var s=blurred(w,h,1.5), b=blurred(w,h,2+sty*3);
-  var n=w*h, L=new Float32Array(n), i, p;
-  for(i=0;i<n;i++){p=i*4;L[i]=0.3*b[p]+0.59*b[p+1]+0.11*b[p+2];}
-  var lv=Math.round(14-sty*8), k=enh*1.4, m=sty*0.7, t=sty*0.35;
-  var sh=[30,70,120], hi=[255,170,125];
+  var img=c.getImageData(0,0,w,h), d=img.data, i, p;
+  if(enh>0){
+    var s=blurred(w,h,1.5), k=enh*1.3;
+    for(i=0;i<w*h*4;i++){ if(i%4!==3) d[i]=d[i]+k*(d[i]-s[i]); }
+  }
+  var rad=Math.round(1+sty*4);
+  var o=sty>0.02?kuwahara(d,w,h,rad):new Uint8ClampedArray(d);
+  var n=w*h, L=new Float32Array(n);
+  for(i=0;i<n;i++){p=i*4;L[i]=0.3*o[p]+0.59*o[p+1]+0.11*o[p+2];}
+  var cs=sty*0.75, t=0.22+sty*0.33, sh=mood.sh, hi=mood.hi, bands=5;
   for(var y=0;y<h;y++){for(var x=0;x<w;x++){
     i=y*w+x;p=i*4;
+    var r0=o[p],g0=o[p+1],b0=o[p+2],lum=L[i],l=lum/255;
+    var ql=Math.floor(l*bands+0.5)/bands, nl=l*(1-cs)+ql*cs;
+    var f=(nl*255+2)/(lum+2);
+    var col=[r0*f,g0*f,b0*f];
     var e=0;
-    if(ink>0&&x>0&&y>0&&x<w-1&&y<h-1){
+    if(ink>0&&x>1&&y>1&&x<w-2&&y<h-2){
       var gx=-L[i-w-1]-2*L[i-1]-L[i+w-1]+L[i-w+1]+2*L[i+1]+L[i+w+1];
       var gy=-L[i-w-1]-2*L[i-w]-L[i-w+1]+L[i+w-1]+2*L[i+w]+L[i+w+1];
-      e=Math.sqrt(gx*gx+gy*gy);e=Math.min(1,Math.max(0,(e-40)/110))*ink;
+      var mg=Math.sqrt(gx*gx+gy*gy);
+      e=Math.min(1,Math.max(0,(mg-35)/70))*ink;
     }
-    var g=(Math.random()-0.5)*grn*40, lum=0.3*d[p]+0.59*d[p+1]+0.11*d[p+2], l=lum/255;
+    var g=(Math.random()-0.5)*grn*36;
     for(var q=0;q<3;q++){
-      var v=d[p+q]; v=v+k*(v-s[p+q]);
-      v=v*(1-m)+b[p+q]*m;
-      if(sty>0){var pv=Math.round(v/255*(lv-1))/(lv-1)*255; v=v*(1-sty*0.6)+pv*sty*0.6;}
-      var tg=sh[q]*(1-l)+hi[q]*l; v=v*(1-t)+tg*t;
-      v=v*(1-e*0.9)+18*e*0.9+g;
+      var v=col[q];
+      var tg=sh[q]*(1-nl)+hi[q]*nl; v=v*(1-t)+tg*t;
+      v=v*(1-e*0.92)+(sh[q]*0.25)*e*0.92+g;
       d[p+q]=v;
     }
+    d[p+3]=255;
   }}
   c.putImageData(img,0,0);
 }
@@ -111,7 +168,8 @@ $('file').onchange=function(ev){
   im.onerror=function(){$('hint').textContent='That file could not be opened. Try a JPG or PNG.';};
   im.src=url;
 };
-['enh','bri','sat','sty','ink','grn'].forEach(function(id){$(id).oninput=schedule;});
+['enh','bri','sat','sty','ink','grn'].forEach(function(id){$(id).onchange=schedule;});
+$('mood').onchange=schedule;
 $('reset').onclick=function(){for(var id in defaults){$(id).value=defaults[id];}schedule();};
 $('save').onclick=function(){
   run(); $('outImg').src=cv.toDataURL('image/jpeg',0.92); $('saveBox').hidden=false;
